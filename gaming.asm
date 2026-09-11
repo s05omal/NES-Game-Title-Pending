@@ -7,16 +7,13 @@
   .org $C000
 
 ;;;;;;;;;;;;;;;
-;DECLARE SOME VARIABLES here
   .rsset $0000  ;; start variables at ram location 0
 
-player_x  .rs 1   ; reserve 1 byte
+curr_input .rs 1    ; reserve 1 byte for input (from bit 7 - 0: A, B, Select, Start, Up, Down, Left, Right)
+last_input .rs 1    ; extra byte to store last frame's input
+player_x  .rs 1
 player_y  .rs 1
-player_info  .rs 1    ; for various player info things. first bit checks for walking.
-                      ; second bit checks for jumping. third bit checks if peak of jump has been reached
-mvt_timer  .rs 1    ;movement timer. caps out at #$03 and resets. used to do walk cycles
-max_jump_speed  .rs 1   ; speed jumps start at/falling caps out at
-jump_speed  .rs 1 
+game_state .rs 1    ; information about game state (bit 0 means game is paused. other bits reserved for potential later use)
 
 ;;;;;;;;;;;;;;;
 
@@ -118,34 +115,27 @@ LatchController:
   LDA #$00
   STA $4016         ; tell both controllers to latch buttons
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Read button presses
+
 ReadA: 
   LDA $4016       ; player 1 - A
   AND #%00000001  ; only look at bit 0
-  BNE APress
-  BEQ NoAPress   ; branch to ReadADone if button is NOT pressed (0)
+  BEQ ReadADone   ; branch to ReadADone if button is NOT pressed (0)
+
+  LDA curr_input
+  ADC #%10000000
   
-APress:
-  LDA player_info
-  BIT #%00000010
-  BNE ReadADone
-  ADC #%00000010
-  STA player_info
-  JMP ReadADone
-
-NoAPress:
-  LDA player_info
-  BIT #%00000010
-  BEQ ReadADone
-  SBC #%00000001
-  STA player_info
-
 ReadADone:        ; handling this button is done
   
 ReadB: 
   LDA $4016       ; player 1 - B
   AND #%00000001  ; only look at bit 0
   BEQ ReadBDone   ; branch to ReadBDone if button is NOT pressed (0)
-                  ; add instructions here to do something when button IS pressed (1)
+
+  LDA curr_input
+  ADC #%01000000
 
 ReadBDone:        ; handling this button is done
 
@@ -154,12 +144,18 @@ ReadSelect:
   AND #%00000001  ; only look at bit 0
   BEQ ReadSelectDone   ; branch to ReadSelectDone if button is NOT pressed (0)
 
+  LDA curr_input
+  ADC #%00100000
+
 ReadSelectDone:
 
 ReadStart: 
   LDA $4016       ; player 1 - Start
   AND #%00000001  ; only look at bit 0
   BEQ ReadStartDone   ; branch to ReadStartDone if button is NOT pressed (0)
+
+  LDA curr_input
+  ADC #%00010000
 
 ReadStartDone:
 
@@ -168,6 +164,9 @@ ReadUp:
   AND #%00000001  ; only look at bit 0
   BEQ ReadUpDone   ; branch to ReadUpDone if button is NOT pressed (0)
 
+  LDA curr_input
+  ADC #%00001000
+
 ReadUpDone:
 
 ReadDown: 
@@ -175,37 +174,18 @@ ReadDown:
   AND #%00000001  ; only look at bit 0
   BEQ ReadDownDone   ; branch to ReadDownDone if button is NOT pressed (0)
 
+  LDA curr_input
+  ADC #%00000100
+
 ReadDownDone:
 
 ReadLeft: 
   LDA $4016       ; player 1 - Left
   AND #%00000001  ; only look at bit 0
-  BEQ NoLeftPress   ; branch to ReadLeftDone if button is NOT pressed (0)
-  JSR CheckFaceLeft
+  BEQ ReadLeftDone   ; branch to ReadLeftDone if button is NOT pressed (0)
 
-;move char to left
-DoLeft:
-  CLC
-  LDA player_x
-  SBC #$00
-  STA player_x
-
-  CLC
-  LDA player_info
-  BIT #%00000001
-  BNE ReadLeftDone
-  ADC #%00000001
-  STA player_info
-  JMP ReadLeftDone
-
-NoLeftPress:
-  LDA player_info
-  BIT #%00000001
-  BEQ ReadLeftDone
-  BIT #%00000010
-  BEQ ReadLeftDone
-  SBC #%00000000
-  STA player_info
+  LDA curr_input
+  ADC #%00000010
 
 ReadLeftDone:
 
@@ -213,161 +193,43 @@ ReadRight:
   LDA $4016       ; player 1 - Right
   AND #%00000001  ; only look at bit 0
   BEQ ReadRightDone ; branch to ReadRightDone if button is NOT pressed (0)
-  JSR CheckFaceRight
 
-;move char to right
-DoRight:
-  CLC
-  LDA player_x
-  ADC #$01
-  STA player_x
-
-  CLC
-  LDA player_info
-  BIT #%00000001
-  BNE ReadRightDone
+  LDA curr_input
   ADC #%00000001
-  STA player_info
 
 ReadRightDone:
 
-GameLogic:
-  JSR UpdateJump
-  JSR UpdateShibePosition
-  JSR ShibeAnimations
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-End:
-  RTI
+CheckPauseButton:
+  LDA curr_input  
+  AND #%00010000  ; start pressed?
+  BEQ PauseGame   ; no? check if paused
 
-UpdateJump:
-  LDA player_info
-  BIT #%00000010
-  BNE Jump
-  RTS
+CheckHoldStart:
+  LDA last_input
+  AND #%00010000  ; start held?
+  BNE PauseGame   ; yes? check if paused
 
-Jump:
-  LDX player_y
-  DEX
-  STX player_y
-  RTS
+  LDA game_state
+  EOR #%00000001  ; no? flip bit in game state
+  STA game_state
 
-DontJump:
-  RTS
+PauseGame:
+  LDA game_state
+  AND #%00000001  ; game paused?
+  BNE SetLastInput  ; skip game logic
+  ; continue if not paused
 
-CheckFaceLeft:
-  LDA $0202
-  BIT #%00000100
-  BEQ FlipLeft
-  RTS
-
-FlipLeft:   
-  LDA #%01000000
-  STA $0202
-  STA $0206
-  STA $020A
-  STA $020E
-  RTS
-
-CheckFaceRight:
-  LDA $0202
-  AND #$40
-  BNE FlipRight
-  RTS
-
-FlipRight:
-  LDA #%00000000
-  STA $0202
-  STA $0206
-  STA $020A
-  STA $020E
-  RTS
-
-UpdateShibePosition:
-  JMP UpdateSpriteX
-
-UpdateSpriteX:
-  LDA $0202
-  BIT #%00000100
-  BNE UpdateLeft
-  JMP UpdateRight
-
-UpdateLeft:
-  LDA player_x
-  STA $0207
-  STA $020F
-  TAX
-  CLC
-  ADC #$08
-  STA $0203
-  STA $020B
-  JMP UpdateSpriteY
-
-UpdateRight:
-  LDA player_x
-  STA $0203
-  STA $020B
-  TAX
-  CLC
-  ADC #$08
-  STA $0207
-  STA $020F
-
-UpdateSpriteY:
-  LDA player_y
-  STA $0200
-  STA $0204
-  TAX
-  CLC
-  ADC #$08
-  STA $0208
-  STA $020C
-  RTS
-
-  ShibeAnimations:
-  LDA player_info
-  AND #%00000010
-  BNE JumpHandler
-
-  LDA player_info
-  BEQ StandStill
-  INC mvt_timer
-  LDA mvt_timer
-  AND #%00001000
-  BEQ WalkFrame1
-  BNE WalkFrame2
-  RTS
-
-WalkFrame1:
-  LDA #$04
-  STA $0209
-  LDA #$05
-  STA $020D
-  RTS
-
-WalkFrame2:
-  LDA #$06
-  STA $0209
-  LDA #$07
-  STA $020D
-  RTS
-
-StandStill:
+SetLastInput:
+  LDA curr_input
+  STA last_input  ; Set next frame's last input to this frame's current input
   LDA #$00
-  STA mvt_timer
-  LDA #$02
-  STA $0209
-  LDA #$03
-  STA $020D
-  RTS
+  STA curr_input  ; Reset next frame's current input
 
-JumpHandler:
-  LDA #$08
-  STA $0209
-  LDA #$09
-  STA $020D
-  RTS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;;;;;;;;;;;;;;;
+; color palettes and sprite setup
 
   .bank 1
   .org $E000
