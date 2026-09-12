@@ -14,6 +14,8 @@ last_input .rs 1    ; extra byte to store last frame's input
 player_x  .rs 1
 player_y  .rs 1
 game_state .rs 1    ; information about game state (bit 0 means game is paused. other bits reserved for potential later use)
+player_state .rs 1   ; info about player state (bit 0 for horizontal mvmt, bit 1 if jumping)
+mvt_timer .rs 1   ; movement timer. caps out at #$03 and resets. used to do walk cycles
 
 ;;;;;;;;;;;;;;;
 
@@ -105,9 +107,6 @@ NMI:
   STA $2003       ; set the low byte (00) of the RAM address
   LDA #$02
   STA $4014       ; set the high byte (02) of the RAM address, start the transfer
-
-  LDA #$05
-  STA max_jump_speed
 
 LatchController:
   LDA #$01
@@ -201,6 +200,17 @@ ReadRightDone:
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+GameLoop:
+  JSR CheckPauseButton
+  JSR CheckJumpButton
+  JSR CheckDPad
+
+  JSR AnimateShibe
+
+  JMP SetLastInput
+
+;-------------------- Pause Handling
+
 CheckPauseButton:
   LDA curr_input  
   AND #%00010000  ; start pressed?
@@ -219,13 +229,166 @@ PauseGame:
   LDA game_state
   AND #%00000001  ; game paused?
   BNE SetLastInput  ; skip game logic
-  ; continue if not paused
+  
+  RTS  ; continue if not paused
+
+;-------------------- Jump handling
+
+CheckJumpButton:
+  LDA curr_input
+  AND #%10000000  ; A pressed?
+  BNE Jump  ; yes? continue
+
+  LDA player_state  ; no? set jump bit back to zero
+  AND #%11111101
+  STA player_state
+
+  RTS
+
+Jump:
+  LDX player_y
+  DEX
+  STX player_y  ; decrement (y=0 is top of screen) y value and store position
+  ; i'll make gravity work later
+
+  STA $0200   ; store relative y values in sprite tiles
+  STA $0204
+  ADC #$08
+  STA $0208
+  STA $020C
+
+  LDA player_state
+  ORA #%00000010  ; set jump bit to 1 if not already
+  STA player_state
+
+  RTS
+
+;-------------------- D-Pad Handling
+
+CheckDPad:
+  LDA curr_input
+  AND #%00000011  ; left/right pressed?
+  BNE Walking   ; yes? continue
+
+  LDA player_state  ; no? set walking bit back to zero
+  AND #%11111110  
+  STA player_state
+
+  RTS
+
+Walking:
+  LDA player_state  
+  EOR #%00000001  ; set walking bit to 1
+  STA player_state
+
+  LDA curr_input
+  AND #%00000010  ; left pressed?
+  BNE WalkLeft  ; yes? walk left
+
+  JMP WalkRight ; no? dpad press already checked. must be walk right
+
+WalkLeft:
+  LDA player_x
+  SBC #$00    ; move 1 pixel left per frame
+  STA player_x
+
+  STA $0207   ; store relative x values in sprite tiles
+  STA $020F   ; also repositions tiles if sprite is flipped
+  ADC #$08
+  STA $0203
+  STA $020B
+
+  LDA #%01000000  ; could flip the bit for each individual tile
+  STA $0202       ; don't know if that's necessary yet though
+  STA $0206
+  STA $020A
+  STA $020E
+
+  RTS
+
+WalkRight:
+  LDA player_x
+  ADC #$01    ; move 1 pixel right per frame
+  STA player_x
+
+  STA $0203   ; store relative x values in sprite tiles
+  STA $020B   ; also repositions tiles if sprite is flipped
+  ADC #$08
+  STA $0207
+  STA $020F
+
+  LDA #%00000000  ; could flip the bit for each individual tile
+  STA $0202       ; don't know if that's necessary yet though
+  STA $0206
+  STA $020A
+  STA $020E
+
+  RTS
+
+;-------------------- Animation Stuff
+
+AnimateShibe:
+  LDA player_info
+  AND #%00000010
+  BNE AnimateJump
+
+  LDA player_info
+  AND #%00000001
+  BEQ StandStill
+
+  INC mvt_timer
+  LDA mvt_timer
+  AND #%00001000
+  BEQ WalkFrame1  ; likely a better way to do this
+  BNE WalkFrame2
+
+  RTS
+
+AnimateJump:
+  LDA #$08  ; set jumping sprites
+  STA $0209
+  LDA #$09
+  STA $020D
+
+  RTS
+
+StandStill:
+  LDA #$00
+  STA mvt_timer   ; reset mvt_timer
+
+  LDA #$02  ; set standing sprites
+  STA $0209
+  LDA #$03
+  STA $020D
+
+  RTS
+
+WalkFrame1:
+  LDA #$04  ; set walking sprites
+  STA $0209
+  LDA #$05
+  STA $020D
+
+  RTS
+
+WalkFrame2:
+  LDA #$06  ; set walking sprites
+  STA $0209
+  LDA #$07
+  STA $020D
+
+  RTS
+
+;-------------------- Wrapping up current frame
 
 SetLastInput:
   LDA curr_input
   STA last_input  ; Set next frame's last input to this frame's current input
   LDA #$00
   STA curr_input  ; Reset next frame's current input
+
+End:
+  RTI
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
