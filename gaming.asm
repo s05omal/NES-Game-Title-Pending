@@ -123,8 +123,10 @@ ReadA:
   AND #%00000001  ; only look at bit 0
   BEQ ReadADone   ; branch to ReadADone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%10000000
+  STA curr_input
   
 ReadADone:        ; handling this button is done
   
@@ -133,8 +135,10 @@ ReadB:
   AND #%00000001  ; only look at bit 0
   BEQ ReadBDone   ; branch to ReadBDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%01000000
+  STA curr_input
 
 ReadBDone:        ; handling this button is done
 
@@ -143,8 +147,10 @@ ReadSelect:
   AND #%00000001  ; only look at bit 0
   BEQ ReadSelectDone   ; branch to ReadSelectDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%00100000
+  STA curr_input
 
 ReadSelectDone:
 
@@ -153,8 +159,10 @@ ReadStart:
   AND #%00000001  ; only look at bit 0
   BEQ ReadStartDone   ; branch to ReadStartDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%00010000
+  STA curr_input
 
 ReadStartDone:
 
@@ -163,8 +171,10 @@ ReadUp:
   AND #%00000001  ; only look at bit 0
   BEQ ReadUpDone   ; branch to ReadUpDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%00001000
+  STA curr_input
 
 ReadUpDone:
 
@@ -173,8 +183,10 @@ ReadDown:
   AND #%00000001  ; only look at bit 0
   BEQ ReadDownDone   ; branch to ReadDownDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%00000100
+  STA curr_input
 
 ReadDownDone:
 
@@ -183,8 +195,10 @@ ReadLeft:
   AND #%00000001  ; only look at bit 0
   BEQ ReadLeftDone   ; branch to ReadLeftDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%00000010
+  STA curr_input
 
 ReadLeftDone:
 
@@ -193,8 +207,10 @@ ReadRight:
   AND #%00000001  ; only look at bit 0
   BEQ ReadRightDone ; branch to ReadRightDone if button is NOT pressed (0)
 
+  CLC
   LDA curr_input
   ADC #%00000001
+  STA curr_input
 
 ReadRightDone:
 
@@ -228,9 +244,12 @@ CheckHoldStart:
 PauseGame:
   LDA game_state
   AND #%00000001  ; game paused?
-  BNE SetLastInput  ; skip game logic
+  BNE JumpPastGameLoop  ; skip game logic
   
   RTS  ; continue if not paused
+
+JumpPastGameLoop:
+  JMP SetLastInput
 
 ;-------------------- Jump handling
 
@@ -278,7 +297,7 @@ CheckDPad:
 
 Walking:
   LDA player_state  
-  EOR #%00000001  ; set walking bit to 1
+  ORA #%00000001  ; set walking bit to 1
   STA player_state
 
   LDA curr_input
@@ -288,12 +307,12 @@ Walking:
   JMP WalkRight ; no? dpad press already checked. must be walk right
 
 WalkLeft:
-  LDA player_x
-  SBC #$00    ; move 1 pixel left per frame
-  STA player_x
+  DEC player_x    ; move 1 pixel left per frame
 
+  LDA player_x
   STA $0207   ; store relative x values in sprite tiles
   STA $020F   ; also repositions tiles if sprite is flipped
+  CLC
   ADC #$08
   STA $0203
   STA $020B
@@ -307,12 +326,12 @@ WalkLeft:
   RTS
 
 WalkRight:
-  LDA player_x
-  ADC #$01    ; move 1 pixel right per frame
-  STA player_x
+  INC player_x    ; move 1 pixel right per frame
 
+  LDA player_x
   STA $0203   ; store relative x values in sprite tiles
   STA $020B   ; also repositions tiles if sprite is flipped
+  CLC
   ADC #$08
   STA $0207
   STA $020F
@@ -328,11 +347,11 @@ WalkRight:
 ;-------------------- Animation Stuff
 
 AnimateShibe:
-  LDA player_info
+  LDA player_state
   AND #%00000010
   BNE AnimateJump
 
-  LDA player_info
+  LDA player_state
   AND #%00000001
   BEQ StandStill
 
