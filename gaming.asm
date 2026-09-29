@@ -265,13 +265,13 @@ CheckJumpButton:
   RTS
 
 Jump:
-  LDX player_y
-  DEX
-  STX player_y  ; decrement (y=0 is top of screen) y value and store position
+  DEC player_y  ; decrement (y=0 is top of screen) y value and store position
   ; i'll make gravity work later
 
+  LDA player_y
   STA $0200   ; store relative y values in sprite tiles
   STA $0204
+  CLC
   ADC #$08
   STA $0208
   STA $020C
